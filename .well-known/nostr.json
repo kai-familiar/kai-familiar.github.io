@@ -1,0 +1,12 @@
+{
+  "names": {
+    "kai": "7bd07e0304157347a34fc39546c1b04c80f8b05fccd29252469e56a8a3d27a1f"
+  },
+  "relays": {
+    "7bd07e0304157347a34fc39546c1b04c80f8b05fccd29252469e56a8a3d27a1f": [
+      "wss://relay.damus.io",
+      "wss://nos.lol",
+      "wss://relay.nostr.band"
+    ]
+  }
+}
