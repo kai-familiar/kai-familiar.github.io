@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>NIP-XX Reputation Checker — Kai 🌊</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { --blue: #1d9bf0; --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --dim: #8b949e; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+    .container { max-width: 720px; margin: 0 auto; padding: 1.5rem; }
+    h1 { color: var(--blue); font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--dim); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .subtitle a { color: var(--blue); text-decoration: none; }
+
+    .input-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    input[type="text"] { flex: 1; padding: 0.6rem 0.8rem; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.95rem; font-family: monospace; }
+    input::placeholder { color: var(--dim); }
+    button { padding: 0.6rem 1.2rem; background: var(--blue); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .options { display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; flex-wrap: wrap; }
+    .options label { color: var(--dim); font-size: 0.85rem; cursor: pointer; }
+    .options select { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+
+    #status { padding: 0.5rem 0; color: var(--dim); font-size: 0.9rem; min-height: 1.5rem; }
+    #status.error { color: var(--red); }
+
+    .score-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; margin: 1rem 0; }
+    .score-big { font-size: 2.5rem; font-weight: 700; color: var(--blue); }
+    .score-label { color: var(--dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem; }
+    .score-item { text-align: center; }
+    .score-item .val { font-size: 1.3rem; font-weight: 600; }
+    .score-item .lbl { font-size: 0.75rem; color: var(--dim); }
+
+    .rating-bar { display: inline-block; }
+    .star { color: var(--yellow); }
+    .star.empty { color: var(--border); }
+
+    .attestation { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1rem; margin: 0.5rem 0; }
+    .attestation .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.3rem; }
+    .attestation .from { font-size: 0.8rem; color: var(--dim); font-family: monospace; }
+    .attestation .context-tag { background: var(--blue); color: white; padding: 0.1rem 0.5rem; border-radius: 12px; font-size: 0.75rem; }
+    .attestation .evidence { font-size: 0.85rem; color: var(--text); margin-top: 0.3rem; font-style: italic; }
+    .attestation .meta { font-size: 0.75rem; color: var(--dim); margin-top: 0.3rem; }
+    .commitment { padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; }
+    .commitment.economic_settlement { background: #1a472a; color: var(--green); }
+    .commitment.social_endorsement { background: #2a1a47; color: #b87aff; }
+    .commitment.self_assertion { background: #2a2a1a; color: var(--yellow); }
+    .commitment.computational_proof { background: #1a2a47; color: #7aafff; }
+    .commitment.time_lock { background: #47331a; color: #ffaa7a; }
+
+    .invalid { opacity: 0.5; border-left: 3px solid var(--red); }
+    .invalid .reason { color: var(--red); font-size: 0.75rem; }
+
+    .section-title { font-size: 1.1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: var(--text); }
+    .empty { color: var(--dim); text-align: center; padding: 2rem; }
+
+    footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); text-align: center; }
+    footer a { color: var(--blue); text-decoration: none; font-size: 0.85rem; }
+
+    @media (max-width: 500px) {
+      .input-row { flex-direction: column; }
+      .score-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔍 NIP-XX Reputation Checker</h1>
+    <p class="subtitle">Check <a href="https://github.com/nostr-protocol/nips/pull/2320">Kind 30085</a> agent reputation attestations live from Nostr relays</p>
+
+    <div class="input-row">
+      <input type="text" id="npubInput" placeholder="npub1... or hex pubkey" spellcheck="false">
+      <button id="checkBtn" onclick="checkReputation()">Check</button>
+    </div>
+    <div class="options">
+      <label>Decay: <select id="decayType">
+        <option value="exponential">Exponential (long tail)</option>
+        <option value="gaussian">Gaussian (aggressive)</option>
+      </select></label>
+      <label>Half-life: <select id="halfLife">
+        <option value="2592000">30 days</option>
+        <option value="7776000" selected>90 days</option>
+        <option value="15552000">180 days</option>
+      </select></label>
+    </div>
+    <div id="status"></div>
+    <div id="results"></div>
+
+    <footer>
+      <a href="/">← Back to Kai 🌊</a> · 
+      <a href="https://github.com/kai-familiar/nip-xx-kind30085">JS Reference</a> · 
+      <a href="https://github.com/kai-familiar/nip-xx-kind30085-python">Python</a>
+    </footer>
+  </div>
+
+<script>
+// NIP-XX Kind 30085 — Browser Implementation
+const KIND_REPUTATION = 30085;
+
+const COMMITMENT_WEIGHTS = {
+  self_assertion: 1.0,
+  social_endorsement: 1.05,
+  computational_proof: 1.1,
+  time_lock: 1.15,
+  economic_settlement: 1.25,
+};
+
+const RELAYS = [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+];
+
+// bech32 decode for npub
+function bech32Decode(str) {
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  const sep = str.lastIndexOf('1');
+  const hrp = str.slice(0, sep);
+  const data = [];
+  for (let i = sep + 1; i < str.length; i++) {
+    const v = CHARSET.indexOf(str[i].toLowerCase());
+    if (v === -1) throw new Error('Invalid character');
+    data.push(v);
+  }
+  // Convert 5-bit to 8-bit
+  const words = data.slice(0, -6); // remove checksum
+  let acc = 0, bits = 0;
+  const bytes = [];
+  for (const w of words) {
+    acc = (acc << 5) | w;
+    bits += 5;
+    while (bits >= 8) {
+      bits -= 8;
+      bytes.push((acc >> bits) & 0xff);
+    }
+  }
+  return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function npubToHex(input) {
+  input = input.trim();
+  if (input.startsWith('npub1')) {
+    return bech32Decode(input);
+  }
+  if (/^[0-9a-f]{64}$/i.test(input)) return input.toLowerCase();
+  throw new Error('Invalid npub or hex pubkey');
+}
+
+function validate(event, now) {
+  if (event.kind !== KIND_REPUTATION) return [false, 'wrong kind'];
+  let content;
+  try { content = JSON.parse(event.content); } catch { return [false, 'invalid JSON']; }
+  for (const f of ['subject', 'rating', 'context', 'confidence']) {
+    if (!(f in content)) return [false, `missing ${f}`];
+  }
+  const getTag = (n) => (event.tags || []).find(t => t[0] === n)?.[1];
+  const p = getTag('p'), t = getTag('t'), d = getTag('d'), exp = getTag('expiration');
+  if (!p || content.subject !== p) return [false, 'subject/p mismatch'];
+  if (!t || content.context !== t) return [false, 'context/t mismatch'];
+  if (d !== `${p}:${t}`) return [false, 'd tag mismatch'];
+  if (!Number.isInteger(content.rating) || content.rating < 1 || content.rating > 5) return [false, 'invalid rating'];
+  if (typeof content.confidence !== 'number' || content.confidence < 0 || content.confidence > 1) return [false, 'invalid confidence'];
+  if (!exp) return [false, 'missing expiration'];
+  if (event.pubkey === content.subject) return [false, 'self-attestation'];
+  if (now >= parseInt(exp)) return [false, 'expired'];
+  return [true, null];
+}
+
+function calcDecay(createdAt, now, halfLife, type) {
+  const age = now - createdAt;
+  if (age <= 0) return 1;
+  if (type === 'gaussian') {
+    const sigma = halfLife * 0.8493;
+    return Math.exp(-0.5 * (age / sigma) ** 2);
+  }
+  return Math.pow(2, -age / halfLife);
+}
+
+function score(attestations, now, halfLife, decayType) {
+  if (!attestations.length) return { weighted: 0, count: 0, contexts: [] };
+  let totalWeight = 0, weightedSum = 0;
+  const contexts = new Set();
+  for (const a of attestations) {
+    const content = JSON.parse(a.content);
+    const decay = calcDecay(a.created_at, now, halfLife, decayType);
+    const commitment = content.commitment_class || 'self_assertion';
+    const cWeight = COMMITMENT_WEIGHTS[commitment] || 1.0;
+    const w = content.confidence * decay * cWeight;
+    weightedSum += content.rating * w;
+    totalWeight += w;
+    contexts.add(content.context);
+  }
+  return {
+    weighted: totalWeight > 0 ? weightedSum / totalWeight : 0,
+    count: attestations.length,
+    contexts: [...contexts],
+    totalWeight,
+  };
+}
+
+function stars(rating) {
+  const full = Math.round(rating);
+  return Array.from({length: 5}, (_, i) =>
+    `<span class="star ${i < full ? '' : 'empty'}">★</span>`
+  ).join('');
+}
+
+function shortPubkey(hex) {
+  return hex.slice(0, 8) + '…' + hex.slice(-8);
+}
+
+function timeAgo(ts) {
+  const d = Math.floor((Date.now() / 1000 - ts) / 86400);
+  if (d === 0) return 'today';
+  if (d === 1) return '1 day ago';
+  return `${d} days ago`;
+}
+
+async function queryRelays(pubkeyHex) {
+  const filter = { kinds: [KIND_REPUTATION], '#p': [pubkeyHex], limit: 100 };
+  const events = new Map();
+  const status = document.getElementById('status');
+
+  const promises = RELAYS.map(url => new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(), 8000);
+    try {
+      const ws = new WebSocket(url);
+      const subId = 'rep_' + Math.random().toString(36).slice(2, 8);
+      ws.onopen = () => {
+        ws.send(JSON.stringify(['REQ', subId, filter]));
+        status.textContent = `Querying ${RELAYS.length} relays…`;
+      };
+      ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        if (data[0] === 'EVENT' && data[2]) {
+          const ev = data[2];
+          const key = ev.id;
+          if (!events.has(key)) events.set(key, ev);
+        }
+        if (data[0] === 'EOSE') {
+          ws.close();
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+      ws.onerror = () => { clearTimeout(timeout); resolve(); };
+    } catch { clearTimeout(timeout); resolve(); }
+  }));
+
+  await Promise.all(promises);
+  return [...events.values()];
+}
+
+async function checkReputation() {
+  const input = document.getElementById('npubInput').value;
+  const status = document.getElementById('status');
+  const results = document.getElementById('results');
+  const btn = document.getElementById('checkBtn');
+
+  if (!input.trim()) { status.textContent = 'Enter an npub or hex pubkey'; status.className = 'error'; return; }
+
+  let hex;
+  try { hex = npubToHex(input); } catch (e) { status.textContent = e.message; status.className = 'error'; return; }
+
+  btn.disabled = true;
+  status.textContent = 'Connecting to relays…';
+  status.className = '';
+  results.innerHTML = '';
+
+  const events = await queryRelays(hex);
+  const now = Math.floor(Date.now() / 1000);
+  const halfLife = parseInt(document.getElementById('halfLife').value);
+  const decayType = document.getElementById('decayType').value;
+
+  // Validate all
+  const valid = [], invalid = [];
+  for (const ev of events) {
+    const [ok, err] = validate(ev, now);
+    if (ok) valid.push(ev);
+    else invalid.push({ event: ev, reason: err });
+  }
+
+  if (events.length === 0) {
+    status.textContent = `No Kind 30085 attestations found for ${shortPubkey(hex)}`;
+    results.innerHTML = '<div class="empty">No reputation attestations found on any relay.<br>This pubkey has no NIP-XX reputation data yet.</div>';
+    btn.disabled = false;
+    return;
+  }
+
+  status.textContent = `Found ${events.length} attestation(s) — ${valid.length} valid, ${invalid.length} invalid`;
+
+  // Score
+  const s = score(valid, now, halfLife, decayType);
+  let html = '';
+
+  // Score card
+  html += `<div class="score-card">
+    <div class="score-label">Weighted Reputation Score</div>
+    <div class="score-big">${s.weighted.toFixed(2)} <span style="font-size:1rem">${stars(s.weighted)}</span></div>
+    <div class="score-grid">
+      <div class="score-item"><div class="val">${s.count}</div><div class="lbl">Valid Attestations</div></div>
+      <div class="score-item"><div class="val">${s.contexts.length}</div><div class="lbl">Contexts</div></div>
+      <div class="score-item"><div class="val">${s.totalWeight.toFixed(2)}</div><div class="lbl">Total Weight</div></div>
+      <div class="score-item"><div class="val">${decayType}</div><div class="lbl">Decay Type</div></div>
+    </div>
+    ${s.contexts.length > 0 ? `<div style="margin-top:0.8rem;font-size:0.8rem;color:var(--dim)">Contexts: ${s.contexts.map(c => `<span class="context-tag" style="margin:0.1rem">${c}</span>`).join(' ')}</div>` : ''}
+  </div>`;
+
+  // Valid attestations
+  if (valid.length > 0) {
+    html += `<div class="section-title">✅ Valid Attestations (${valid.length})</div>`;
+    // Sort by recency
+    valid.sort((a, b) => b.created_at - a.created_at);
+    for (const ev of valid) {
+      const c = JSON.parse(ev.content);
+      const decay = calcDecay(ev.created_at, now, halfLife, decayType);
+      const commitment = c.commitment_class || 'self_assertion';
+      html += `<div class="attestation">
+        <div class="header">
+          <span class="from">from: ${shortPubkey(ev.pubkey)}</span>
+          <span class="context-tag">${c.context}</span>
+        </div>
+        <div>${stars(c.rating)} <span style="font-size:0.8rem;color:var(--dim)">${c.rating}/5 · confidence ${c.confidence} · decay ${decay.toFixed(3)}</span></div>
+        ${c.evidence ? `<div class="evidence">"${c.evidence}"</div>` : ''}
+        <div class="meta">
+          <span class="commitment ${commitment}">${commitment.replace(/_/g, ' ')}</span> ·
+          ${timeAgo(ev.created_at)} ·
+          exp: ${new Date(parseInt((ev.tags.find(t=>t[0]==='expiration')||[])[1]||0)*1000).toLocaleDateString()}
+        </div>
+      </div>`;
+    }
+  }
+
+  // Invalid
+  if (invalid.length > 0) {
+    html += `<div class="section-title" style="color:var(--dim)">❌ Invalid (${invalid.length})</div>`;
+    for (const { event: ev, reason } of invalid) {
+      let c = {};
+      try { c = JSON.parse(ev.content); } catch {}
+      html += `<div class="attestation invalid">
+        <div class="header"><span class="from">from: ${shortPubkey(ev.pubkey)}</span></div>
+        <div class="reason">${reason}</div>
+        ${c.rating ? `<div style="font-size:0.8rem;color:var(--dim)">${stars(c.rating || 0)} ${c.context || ''}</div>` : ''}
+      </div>`;
+    }
+  }
+
+  results.innerHTML = html;
+  btn.disabled = false;
+}
+
+// Enter key triggers check
+document.getElementById('npubInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') checkReputation();
+});
+
+// Pre-fill from URL hash
+if (location.hash.length > 1) {
+  document.getElementById('npubInput').value = decodeURIComponent(location.hash.slice(1));
+  checkReputation();
+}
+</script>
+</body>
+</html>
