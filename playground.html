@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>NIP-XX Playground — Kai 🌊</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root { --blue: #1d9bf0; --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --dim: #8b949e; --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #a371f7; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+    .container { max-width: 860px; margin: 0 auto; padding: 1.5rem; }
+    h1 { color: var(--blue); font-size: 1.5rem; margin-bottom: 0.25rem; }
+    h2 { color: var(--text); font-size: 1.1rem; margin: 1.5rem 0 0.75rem; }
+    .subtitle { color: var(--dim); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .subtitle a { color: var(--blue); text-decoration: none; }
+    a { color: var(--blue); }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .score-display { text-align: center; padding: 1.5rem; }
+    .score-big { font-size: 3rem; font-weight: 800; line-height: 1; }
+    .score-label { color: var(--dim); font-size: 0.85rem; margin-top: 0.25rem; }
+    .score-bar { height: 8px; background: var(--border); border-radius: 4px; margin-top: 0.75rem; overflow: hidden; }
+    .score-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s, background 0.3s; }
+
+    .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+    .controls label { color: var(--dim); font-size: 0.85rem; }
+    select, input[type="number"], input[type="range"] { background: var(--card); border: 1px solid var(--border); color: var(--text); padding: 0.35rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
+    input[type="range"] { width: 100px; }
+    button { padding: 0.5rem 1rem; background: var(--blue); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+    button:hover { opacity: 0.9; }
+    button.danger { background: var(--red); }
+    button.secondary { background: var(--border); }
+    button.small { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; color: var(--dim); font-weight: 500; padding: 0.5rem 0.25rem; border-bottom: 1px solid var(--border); }
+    td { padding: 0.4rem 0.25rem; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(29, 155, 240, 0.05); }
+    .mono { font-family: monospace; font-size: 0.8rem; }
+
+    .decay-chart { position: relative; height: 200px; margin: 0.5rem 0; }
+    canvas { width: 100%; height: 100%; border-radius: 4px; }
+
+    .star { cursor: pointer; font-size: 1.2rem; }
+    .star.active { color: var(--yellow); }
+    .star.inactive { color: var(--border); }
+
+    .add-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+    .add-form .full { grid-column: 1 / -1; }
+
+    .stats-row { display: flex; justify-content: space-between; padding: 0.3rem 0; font-size: 0.85rem; }
+    .stats-row .label { color: var(--dim); }
+    .stats-row .value { font-weight: 600; font-family: monospace; }
+
+    .tag { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-size: 0.75rem; font-weight: 600; }
+    .tag-green { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+    .tag-yellow { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+    .tag-red { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+    .tag-blue { background: rgba(29, 155, 240, 0.15); color: var(--blue); }
+    .tag-purple { background: rgba(163, 113, 247, 0.15); color: var(--purple); }
+
+    .empty { color: var(--dim); text-align: center; padding: 2rem; font-style: italic; }
+    .footer { color: var(--dim); font-size: 0.8rem; text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>🧪 NIP-XX Playground</h1>
+  <p class="subtitle">
+    Interactive simulator for <a href="https://github.com/nostr-protocol/nips/pull/2320">Kind 30085 Agent Reputation Attestations</a>.
+    Add attestations, tweak parameters, see how scoring works in real-time.
+  </p>
+
+  <!-- Score Display -->
+  <div class="grid">
+    <div class="card score-display">
+      <div class="score-big" id="scoreValue" style="color: var(--dim)">—</div>
+      <div class="score-label">Tier 1 Score (weighted average)</div>
+      <div class="score-bar"><div class="score-bar-fill" id="scoreBar" style="width: 0"></div></div>
+    </div>
+    <div class="card">
+      <div class="stats-row"><span class="label">Attestations</span><span class="value" id="statCount">0</span></div>
+      <div class="stats-row"><span class="label">Unique attestors</span><span class="value" id="statUnique">0</span></div>
+      <div class="stats-row"><span class="label">Entropy (diversity)</span><span class="value" id="statEntropy">0.00</span></div>
+      <div class="stats-row"><span class="label">Herfindahl (concentration)</span><span class="value" id="statHerfindahl">—</span></div>
+      <div class="stats-row"><span class="label">Burst detected</span><span class="value" id="statBurst">No</span></div>
+      <div class="stats-row"><span class="label">Effective weight sum</span><span class="value" id="statWeight">0.00</span></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <h2>⚙️ Parameters</h2>
+  <div class="card">
+    <div class="controls">
+      <label>Decay:</label>
+      <select id="decayType" onchange="recalc()">
+        <option value="exponential">Exponential (long tail)</option>
+        <option value="gaussian">Gaussian (aggressive)</option>
+      </select>
+      <label style="margin-left:0.5rem">Half-life:</label>
+      <select id="halfLife" onchange="recalc()">
+        <option value="2592000">30 days (fast)</option>
+        <option value="7776000" selected>90 days (standard)</option>
+        <option value="15552000">180 days (slow)</option>
+      </select>
+      <button class="secondary small" onclick="loadPreset('diverse')" style="margin-left:auto">Load: Diverse</button>
+      <button class="secondary small" onclick="loadPreset('sybil')">Load: Sybil</button>
+      <button class="secondary small" onclick="loadPreset('decay')">Load: Decay demo</button>
+    </div>
+  </div>
+
+  <!-- Decay Curve Visualization -->
+  <h2>📉 Decay Curve</h2>
+  <div class="card">
+    <div class="decay-chart">
+      <canvas id="decayCanvas"></canvas>
+    </div>
+    <div style="display:flex; justify-content:space-between; font-size:0.75rem; color:var(--dim); margin-top:0.25rem">
+      <span>Now</span>
+      <span>← Age →</span>
+      <span>2× half-life</span>
+    </div>
+  </div>
+
+  <!-- Add Attestation -->
+  <h2>➕ Add Attestation</h2>
+  <div class="card">
+    <div class="add-form">
+      <div>
+        <label style="color:var(--dim);font-size:0.8rem">Attestor (name)</label>
+        <input type="text" id="addAttestor" value="Alice" style="width:100%;padding:0.35rem 0.5rem;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:0.85rem">
+      </div>
+      <div>
+        <label style="color:var(--dim);font-size:0.8rem">Context</label>
+        <select id="addContext" style="width:100%">
+          <option>reliability</option>
+          <option>code.review</option>
+          <option>code.quality</option>
+          <option>service.uptime</option>
+          <option>communication</option>
+          <option>payment</option>
+        </select>
+      </div>
+      <div>
+        <label style="color:var(--dim);font-size:0.8rem">Rating</label>
+        <div id="addRating" style="margin-top:0.25rem">
+          <span class="star active" onclick="setRating(1)">★</span>
+          <span class="star active" onclick="setRating(2)">★</span>
+          <span class="star active" onclick="setRating(3)">★</span>
+          <span class="star active" onclick="setRating(4)">★</span>
+          <span class="star inactive" onclick="setRating(5)">★</span>
+        </div>
+      </div>
+      <div>
+        <label style="color:var(--dim);font-size:0.8rem">Confidence: <span id="confLabel">0.85</span></label>
+        <input type="range" id="addConfidence" min="0" max="100" value="85" style="width:100%" oninput="document.getElementById('confLabel').textContent=(this.value/100).toFixed(2)">
+      </div>
+      <div>
+        <label style="color:var(--dim);font-size:0.8rem">Age (days ago)</label>
+        <input type="number" id="addAge" value="0" min="0" max="365" style="width:100%">
+      </div>
+      <div>
+        <label style="color:var(--dim);font-size:0.8rem">Commitment class</label>
+        <select id="addCommitment" style="width:100%">
+          <option value="self_assertion">Self assertion (1.0×)</option>
+          <option value="social_endorsement" selected>Social endorsement (1.05×)</option>
+          <option value="computational_proof">Computational proof (1.1×)</option>
+          <option value="time_lock">Time lock (1.15×)</option>
+          <option value="economic_settlement">Economic settlement (1.25×)</option>
+        </select>
+      </div>
+      <div class="full" style="text-align:right;margin-top:0.5rem">
+        <button onclick="addAttestation()">Add Attestation</button>
+        <button class="danger" onclick="clearAll()" style="margin-left:0.5rem">Clear All</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Attestation Table -->
+  <h2>📋 Attestations (<span id="tableCount">0</span>)</h2>
+  <div class="card" style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Attestor</th>
+          <th>Context</th>
+          <th>Rating</th>
+          <th>Conf</th>
+          <th>Age</th>
+          <th>Commitment</th>
+          <th>Decay</th>
+          <th>Weight</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="attTable"></tbody>
+    </table>
+    <div class="empty" id="emptyMsg">No attestations yet. Add some above or load a preset!</div>
+  </div>
+
+  <div class="footer">
+    Built by <a href="https://njump.me/npub100g8uqcyz4e50rflpe2x79smqnyqlkzlnvkjjfydfu4k29r6fslqm4cf07">Kai 🌊</a> —
+    <a href="https://github.com/nostr-protocol/nips/pull/2320">NIP-XX Spec</a> ·
+    <a href="https://github.com/kai-familiar/nip-xx-kind30085">JS Library</a> ·
+    <a href="https://github.com/kai-familiar/nip-xx-kind30085-python">Python Library</a> ·
+    <a href="index.html">Home</a>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// NIP-XX Kind 30085 — Scoring Engine (pure JS, matches spec)
+// ============================================================
+
+const COMMITMENT_WEIGHTS = {
+  self_assertion: 1.0,
+  social_endorsement: 1.05,
+  computational_proof: 1.1,
+  time_lock: 1.15,
+  economic_settlement: 1.25,
+};
+
+const GAUSSIAN_SIGMA_FACTOR = 1 / Math.sqrt(2 * Math.log(2)); // ≈ 0.8493
+
+function exponentialDecay(ageSec, halfLifeSec) {
+  if (ageSec <= 0) return 1;
+  return Math.pow(2, -ageSec / halfLifeSec);
+}
+
+function gaussianDecay(ageSec, halfLifeSec) {
+  if (ageSec <= 0) return 1;
+  const sigma = halfLifeSec * GAUSSIAN_SIGMA_FACTOR;
+  return Math.exp(-0.5 * Math.pow(ageSec / sigma, 2));
+}
+
+function calcDecay(ageSec, halfLifeSec, type) {
+  return type === 'gaussian' ? gaussianDecay(ageSec, halfLifeSec) : exponentialDecay(ageSec, halfLifeSec);
+}
+
+// ============================================================
+// State
+// ============================================================
+
+let attestations = [];
+let currentRating = 4;
+
+function setRating(r) {
+  currentRating = r;
+  const stars = document.querySelectorAll('#addRating .star');
+  stars.forEach((s, i) => {
+    s.className = 'star ' + (i < r ? 'active' : 'inactive');
+  });
+}
+
+function addAttestation() {
+  const att = {
+    id: Date.now() + Math.random(),
+    attestor: document.getElementById('addAttestor').value.trim() || 'Anon',
+    context: document.getElementById('addContext').value,
+    rating: currentRating,
+    confidence: parseInt(document.getElementById('addConfidence').value) / 100,
+    ageDays: parseInt(document.getElementById('addAge').value) || 0,
+    commitment: document.getElementById('addCommitment').value,
+  };
+  attestations.push(att);
+  recalc();
+}
+
+function removeAtt(id) {
+  attestations = attestations.filter(a => a.id !== id);
+  recalc();
+}
+
+function clearAll() {
+  attestations = [];
+  recalc();
+}
+
+// ============================================================
+// Presets
+// ============================================================
+
+function loadPreset(name) {
+  attestations = [];
+  if (name === 'diverse') {
+    // Healthy diverse attestations
+    attestations = [
+      { id: 1, attestor: 'Alice', context: 'reliability', rating: 5, confidence: 0.9, ageDays: 3, commitment: 'economic_settlement' },
+      { id: 2, attestor: 'Bob', context: 'reliability', rating: 4, confidence: 0.8, ageDays: 10, commitment: 'social_endorsement' },
+      { id: 3, attestor: 'Carol', context: 'code.review', rating: 4, confidence: 0.75, ageDays: 20, commitment: 'computational_proof' },
+      { id: 4, attestor: 'Dave', context: 'payment', rating: 5, confidence: 0.95, ageDays: 5, commitment: 'economic_settlement' },
+      { id: 5, attestor: 'Eve', context: 'communication', rating: 3, confidence: 0.6, ageDays: 45, commitment: 'self_assertion' },
+    ];
+  } else if (name === 'sybil') {
+    // Same attestor, suspicious pattern
+    for (let i = 0; i < 8; i++) {
+      attestations.push({ id: 10+i, attestor: 'SybilBot', context: 'reliability', rating: 5, confidence: 1.0, ageDays: 0, commitment: 'self_assertion' });
+    }
+    attestations.push({ id: 20, attestor: 'Legit', context: 'reliability', rating: 3, confidence: 0.8, ageDays: 15, commitment: 'economic_settlement' });
+  } else if (name === 'decay') {
+    // Same attestor/rating at different ages to show decay
+    const ages = [0, 7, 30, 60, 90, 120, 180, 270, 365];
+    ages.forEach((d, i) => {
+      attestations.push({ id: 30+i, attestor: `Peer_${d}d`, context: 'reliability', rating: 4, confidence: 0.9, ageDays: d, commitment: 'social_endorsement' });
+    });
+  }
+  recalc();
+}
+
+// ============================================================
+// Recalculate + Render
+// ============================================================
+
+function recalc() {
+  const decayType = document.getElementById('decayType').value;
+  const halfLife = parseInt(document.getElementById('halfLife').value);
+  const DAY = 86400;
+
+  // Calculate weights
+  let weightedSum = 0, totalWeight = 0;
+  const enriched = attestations.map(a => {
+    const ageSec = a.ageDays * DAY;
+    const d = calcDecay(ageSec, halfLife, decayType);
+    const cw = COMMITMENT_WEIGHTS[a.commitment] || 1;
+    const w = a.confidence * d * cw;
+    weightedSum += a.rating * w;
+    totalWeight += w;
+    return { ...a, decay: d, weight: w, commitWeight: cw };
+  });
+
+  const score = totalWeight > 0 ? weightedSum / totalWeight : 0;
+
+  // Diversity
+  const pubkeys = enriched.map(a => a.attestor);
+  const counts = {};
+  pubkeys.forEach(p => counts[p] = (counts[p] || 0) + 1);
+  const uniqueCount = Object.keys(counts).length;
+  const total = pubkeys.length;
+  let entropy = 0, herfindahl = 0;
+  if (total > 0) {
+    Object.values(counts).forEach(c => {
+      const p = c / total;
+      entropy -= p * Math.log2(p);
+      herfindahl += p * p;
+    });
+  }
+
+  // Burst: >10 attestations with age 0
+  const recentCount = enriched.filter(a => a.ageDays === 0).length;
+  const burst = recentCount > 10;
+
+  // Update UI
+  const scoreEl = document.getElementById('scoreValue');
+  scoreEl.textContent = score > 0 ? score.toFixed(2) : '—';
+  const pct = score > 0 ? ((score - 1) / 4) * 100 : 0;
+  const bar = document.getElementById('scoreBar');
+  bar.style.width = pct + '%';
+  if (score >= 4) { scoreEl.style.color = 'var(--green)'; bar.style.background = 'var(--green)'; }
+  else if (score >= 3) { scoreEl.style.color = 'var(--blue)'; bar.style.background = 'var(--blue)'; }
+  else if (score >= 2) { scoreEl.style.color = 'var(--yellow)'; bar.style.background = 'var(--yellow)'; }
+  else if (score > 0) { scoreEl.style.color = 'var(--red)'; bar.style.background = 'var(--red)'; }
+  else { scoreEl.style.color = 'var(--dim)'; bar.style.background = 'var(--border)'; }
+
+  document.getElementById('statCount').textContent = total;
+  document.getElementById('statUnique').textContent = uniqueCount;
+  document.getElementById('statEntropy').textContent = entropy.toFixed(2);
+  document.getElementById('statHerfindahl').textContent = total > 0 ? herfindahl.toFixed(3) : '—';
+  document.getElementById('statBurst').textContent = burst ? '⚠️ Yes' : 'No';
+  document.getElementById('statBurst').style.color = burst ? 'var(--red)' : 'var(--green)';
+  document.getElementById('statWeight').textContent = totalWeight.toFixed(3);
+  document.getElementById('tableCount').textContent = total;
+
+  // Table
+  const tbody = document.getElementById('attTable');
+  const empty = document.getElementById('emptyMsg');
+  if (enriched.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = '';
+  } else {
+    empty.style.display = 'none';
+    tbody.innerHTML = enriched.map(a => {
+      const stars = '★'.repeat(a.rating) + '☆'.repeat(5 - a.rating);
+      const commitTag = a.commitment === 'economic_settlement' ? 'tag-purple' :
+                        a.commitment === 'time_lock' ? 'tag-blue' :
+                        a.commitment === 'computational_proof' ? 'tag-green' :
+                        a.commitment === 'social_endorsement' ? 'tag-yellow' : '';
+      const commitLabel = a.commitment.replace(/_/g, ' ');
+      const ageLabel = a.ageDays === 0 ? 'now' : a.ageDays + 'd';
+      return `<tr>
+        <td><strong>${esc(a.attestor)}</strong></td>
+        <td class="mono">${esc(a.context)}</td>
+        <td style="color:var(--yellow)">${stars}</td>
+        <td>${a.confidence.toFixed(2)}</td>
+        <td>${ageLabel}</td>
+        <td><span class="tag ${commitTag}">${commitLabel}</span></td>
+        <td class="mono" style="color:${a.decay > 0.5 ? 'var(--green)' : a.decay > 0.1 ? 'var(--yellow)' : 'var(--red)'}">${a.decay.toFixed(3)}</td>
+        <td class="mono">${a.weight.toFixed(3)}</td>
+        <td><button class="small danger" onclick="removeAtt(${a.id})">×</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  drawDecayCurve(decayType, halfLife);
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ============================================================
+// Decay Curve Canvas
+// ============================================================
+
+function drawDecayCurve(decayType, halfLife) {
+  const canvas = document.getElementById('decayCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Background grid
+  ctx.strokeStyle = '#30363d';
+  ctx.lineWidth = 0.5;
+  for (let y = 0; y <= 1; y += 0.25) {
+    const py = H - y * H;
+    ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+  }
+  // Half-life marker
+  const hlX = W / 2;
+  ctx.strokeStyle = '#484f58';
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(hlX, 0); ctx.lineTo(hlX, H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 0.5 line
+  const halfY = H * 0.5;
+  ctx.strokeStyle = '#484f58';
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(0, halfY); ctx.lineTo(W, halfY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Labels
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px system-ui';
+  ctx.fillText('1.0', 4, 14);
+  ctx.fillText('0.5', 4, halfY - 4);
+  ctx.fillText('0', 4, H - 4);
+  ctx.fillText('half-life', hlX + 4, 14);
+
+  const maxAge = halfLife * 2;
+
+  // Draw both curves, highlight active
+  function drawCurve(type, color, active) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = active ? 2.5 : 1;
+    ctx.globalAlpha = active ? 1 : 0.3;
+    ctx.beginPath();
+    for (let i = 0; i <= W; i++) {
+      const age = (i / W) * maxAge;
+      const d = calcDecay(age, halfLife, type);
+      const y = H - d * H;
+      i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  const other = decayType === 'gaussian' ? 'exponential' : 'gaussian';
+  drawCurve(other, other === 'gaussian' ? '#a371f7' : '#1d9bf0', false);
+  drawCurve(decayType, decayType === 'gaussian' ? '#a371f7' : '#1d9bf0', true);
+
+  // Legend
+  ctx.font = '10px system-ui';
+  ctx.fillStyle = '#1d9bf0'; ctx.fillText('— Exponential', W - 150, 16);
+  ctx.fillStyle = '#a371f7'; ctx.fillText('— Gaussian', W - 150, 30);
+
+  // Plot attestation dots
+  attestations.forEach(a => {
+    const ageSec = a.ageDays * 86400;
+    if (ageSec > maxAge) return;
+    const x = (ageSec / maxAge) * W;
+    const d = calcDecay(ageSec, halfLife, decayType);
+    const y = H - d * H;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = a.rating >= 4 ? '#3fb950' : a.rating >= 3 ? '#d29922' : '#f85149';
+    ctx.fill();
+    ctx.strokeStyle = '#0d1117';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+}
+
+// Init
+recalc();
+window.addEventListener('resize', recalc);
+</script>
+</body>
+</html>
