@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Reputation Network Graph — NIP-XX Kind 30085</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interactive force-directed graph of NIP-XX Kind 30085 agent reputation attestations on Nostr">
+  <style>
+    :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --dim: #8b949e; --blue: #1d9bf0; --green: #3fb950; --yellow: #d29922; --red: #f85149; --purple: #b87aff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+    
+    #controls { position: fixed; top: 0; left: 0; right: 0; z-index: 10; background: rgba(13,17,23,0.95); border-bottom: 1px solid var(--border); padding: 0.6rem 1rem; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+    #controls h1 { font-size: 1rem; color: var(--blue); margin-right: 0.5rem; white-space: nowrap; }
+    #controls input[type="text"] { padding: 0.4rem 0.6rem; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.85rem; font-family: monospace; width: 280px; }
+    #controls button { padding: 0.4rem 0.8rem; background: var(--blue); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+    #controls button:disabled { opacity: 0.4; }
+    #controls .status { color: var(--dim); font-size: 0.8rem; }
+    
+    canvas { display: block; cursor: grab; }
+    canvas:active { cursor: grabbing; }
+    
+    #tooltip { position: fixed; display: none; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.8rem; max-width: 320px; z-index: 20; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+    #tooltip .tt-pubkey { font-family: monospace; color: var(--dim); font-size: 0.75rem; }
+    #tooltip .tt-stats { margin-top: 0.3rem; }
+    #tooltip .tt-label { color: var(--dim); }
+    
+    #legend { position: fixed; bottom: 1rem; right: 1rem; background: rgba(22,27,34,0.92); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.75rem; z-index: 10; }
+    #legend div { display: flex; align-items: center; gap: 0.4rem; margin: 0.2rem 0; }
+    #legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    
+    #links { position: fixed; bottom: 1rem; left: 1rem; z-index: 10; }
+    #links a { color: var(--blue); text-decoration: none; font-size: 0.8rem; margin-right: 0.8rem; }
+
+    @media (max-width: 600px) {
+      #controls input[type="text"] { width: 160px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <h1>🕸️ Reputation Graph</h1>
+    <input type="text" id="seedInput" placeholder="npub1... or hex (seed pubkey)">
+    <button id="goBtn" onclick="startGraph()">Explore</button>
+    <button onclick="expandAll()" style="background:var(--card);border:1px solid var(--border);color:var(--text)">Expand All</button>
+    <span class="status" id="statusText"></span>
+  </div>
+  
+  <canvas id="canvas"></canvas>
+  
+  <div id="tooltip"></div>
+  
+  <div id="legend">
+    <div><span class="dot" style="background:var(--blue)"></span> Seed pubkey</div>
+    <div><span class="dot" style="background:var(--green)"></span> Attestor (gives ratings)</div>
+    <div><span class="dot" style="background:var(--purple)"></span> Subject (receives ratings)</div>
+    <div><span class="dot" style="background:var(--yellow)"></span> Both</div>
+    <div style="margin-top:0.3rem;color:var(--dim)">Edge width = rating · confidence</div>
+    <div style="color:var(--dim)">Click node to expand</div>
+  </div>
+  
+  <div id="links">
+    <a href="/">Kai 🌊</a>
+    <a href="/reputation.html">Checker</a>
+    <a href="/attest.html">Create</a>
+  </div>
+
+<script>
+const KIND = 30085;
+const RELAYS = ['wss://relay.damus.io','wss://relay.primal.net','wss://nos.lol','wss://relay.nostr.band'];
+const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+function bech32Decode(str) {
+  const sep = str.lastIndexOf('1');
+  const data = [];
+  for (let i = sep + 1; i < str.length; i++) {
+    const v = CHARSET.indexOf(str[i].toLowerCase());
+    if (v === -1) throw new Error('Invalid');
+    data.push(v);
+  }
+  const words = data.slice(0, -6);
+  let acc = 0, bits = 0; const bytes = [];
+  for (const w of words) { acc = (acc << 5) | w; bits += 5; while (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 0xff); } }
+  return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function toHex(input) {
+  input = input.trim();
+  if (input.startsWith('npub1')) return bech32Decode(input);
+  if (/^[0-9a-f]{64}$/i.test(input)) return input.toLowerCase();
+  throw new Error('Invalid pubkey');
+}
+
+function shortKey(hex) { return hex.slice(0, 6) + '…' + hex.slice(-4); }
+
+// Graph state
+const nodes = new Map(); // hex -> {x, y, vx, vy, role, attestsOut, attestsIn, expanded, contexts}
+const edges = []; // {from, to, rating, confidence, context}
+const queriedPubkeys = new Set();
+let seedHex = null;
+
+// Canvas
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+let panX = 0, panY = 0, zoom = 1;
+let dragging = null, dragOffX = 0, dragOffY = 0;
+let isPanning = false, panStartX = 0, panStartY = 0, panStartPX = 0, panStartPY = 0;
+let hoveredNode = null;
+let animId;
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+function addNode(hex, role) {
+  if (nodes.has(hex)) {
+    const n = nodes.get(hex);
+    if (role === 'both' || (n.role !== 'seed' && n.role !== 'both' && n.role !== role)) {
+      if (n.role !== 'seed') n.role = 'both';
+    }
+    return n;
+  }
+  const angle = Math.random() * Math.PI * 2;
+  const r = 50 + Math.random() * 150;
+  const n = {
+    x: W/2 + Math.cos(angle) * r - panX,
+    y: H/2 + Math.sin(angle) * r - panY,
+    vx: 0, vy: 0,
+    role: role,
+    attestsOut: 0, attestsIn: 0,
+    expanded: false,
+    contexts: new Set(),
+  };
+  nodes.set(hex, n);
+  return n;
+}
+
+function addEdge(from, to, rating, confidence, context) {
+  // Dedupe
+  const exists = edges.find(e => e.from === from && e.to === to && e.context === context);
+  if (exists) return;
+  edges.push({ from, to, rating, confidence, context });
+  const fn = nodes.get(from); if (fn) { fn.attestsOut++; fn.contexts.add(context); }
+  const tn = nodes.get(to); if (tn) { tn.attestsIn++; tn.contexts.add(context); }
+}
+
+async function queryAttestations(pubkeyHex, direction) {
+  const key = `${pubkeyHex}:${direction}`;
+  if (queriedPubkeys.has(key)) return [];
+  queriedPubkeys.add(key);
+
+  const filter = { kinds: [KIND], limit: 200 };
+  if (direction === 'incoming') filter['#p'] = [pubkeyHex];
+  else filter.authors = [pubkeyHex];
+
+  const events = new Map();
+  const status = document.getElementById('statusText');
+  status.textContent = `Querying ${direction} for ${shortKey(pubkeyHex)}…`;
+
+  await Promise.all(RELAYS.map(url => new Promise(resolve => {
+    const timeout = setTimeout(resolve, 8000);
+    try {
+      const ws = new WebSocket(url);
+      const subId = 'g_' + Math.random().toString(36).slice(2, 8);
+      ws.onopen = () => ws.send(JSON.stringify(['REQ', subId, filter]));
+      ws.onmessage = (msg) => {
+        const d = JSON.parse(msg.data);
+        if (d[0] === 'EVENT' && d[2]) events.set(d[2].id, d[2]);
+        if (d[0] === 'EOSE') { ws.close(); clearTimeout(timeout); resolve(); }
+      };
+      ws.onerror = () => { clearTimeout(timeout); resolve(); };
+    } catch { clearTimeout(timeout); resolve(); }
+  })));
+
+  status.textContent = `Found ${events.size} ${direction} attestations for ${shortKey(pubkeyHex)}`;
+  return [...events.values()];
+}
+
+async function expandNode(hex) {
+  const node = nodes.get(hex);
+  if (!node || node.expanded) return;
+  node.expanded = true;
+
+  // Query both directions
+  const [incoming, outgoing] = await Promise.all([
+    queryAttestations(hex, 'incoming'),
+    queryAttestations(hex, 'outgoing'),
+  ]);
+
+  const now = Math.floor(Date.now() / 1000);
+
+  for (const ev of incoming) {
+    let c; try { c = JSON.parse(ev.content); } catch { continue; }
+    if (!c.subject || !c.rating || !c.context) continue;
+    const exp = (ev.tags || []).find(t => t[0] === 'expiration');
+    if (exp && now >= parseInt(exp[1])) continue;
+    if (ev.pubkey === c.subject) continue;
+
+    addNode(ev.pubkey, 'attestor');
+    addEdge(ev.pubkey, hex, c.rating, c.confidence || 0.5, c.context);
+  }
+
+  for (const ev of outgoing) {
+    let c; try { c = JSON.parse(ev.content); } catch { continue; }
+    if (!c.subject || !c.rating || !c.context) continue;
+    const exp = (ev.tags || []).find(t => t[0] === 'expiration');
+    if (exp && now >= parseInt(exp[1])) continue;
+    if (ev.pubkey === c.subject) continue;
+
+    addNode(c.subject, 'subject');
+    addEdge(hex, c.subject, c.rating, c.confidence || 0.5, c.context);
+  }
+
+  document.getElementById('statusText').textContent = `${nodes.size} nodes, ${edges.length} edges`;
+}
+
+async function startGraph() {
+  const input = document.getElementById('seedInput').value;
+  if (!input.trim()) return;
+  try { seedHex = toHex(input); } catch { document.getElementById('statusText').textContent = 'Invalid pubkey'; return; }
+
+  nodes.clear(); edges.length = 0; queriedPubkeys.clear();
+  panX = 0; panY = 0; zoom = 1;
+
+  const n = addNode(seedHex, 'seed');
+  n.x = W / 2; n.y = H / 2;
+  await expandNode(seedHex);
+}
+
+async function expandAll() {
+  const unexpanded = [...nodes.entries()].filter(([, n]) => !n.expanded).map(([k]) => k);
+  for (const hex of unexpanded.slice(0, 20)) { // limit to prevent overload
+    await expandNode(hex);
+  }
+}
+
+// Physics
+function simulate() {
+  const nodeArr = [...nodes.entries()];
+  const N = nodeArr.length;
+  if (N === 0) return;
+
+  // Repulsion
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      const [, a] = nodeArr[i], [, b] = nodeArr[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = 8000 / (dist * dist);
+      const fx = (dx / dist) * force, fy = (dy / dist) * force;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    }
+  }
+
+  // Attraction (edges)
+  for (const e of edges) {
+    const a = nodes.get(e.from), b = nodes.get(e.to);
+    if (!a || !b) continue;
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const force = (dist - 120) * 0.01;
+    const fx = (dx / dist) * force, fy = (dy / dist) * force;
+    a.vx += fx; a.vy += fy;
+    b.vx -= fx; b.vy -= fy;
+  }
+
+  // Center gravity
+  for (const [, n] of nodeArr) {
+    const cx = W / 2 - panX, cy = H / 2 - panY;
+    n.vx += (cx - n.x) * 0.0005;
+    n.vy += (cy - n.y) * 0.0005;
+  }
+
+  // Damping + integration
+  for (const [, n] of nodeArr) {
+    if (n === dragging) continue;
+    n.vx *= 0.85; n.vy *= 0.85;
+    n.x += n.vx; n.y += n.vy;
+  }
+}
+
+const COLORS = { seed: '#1d9bf0', attestor: '#3fb950', subject: '#b87aff', both: '#d29922' };
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(panX, panY);
+  ctx.scale(zoom, zoom);
+
+  // Edges
+  for (const e of edges) {
+    const a = nodes.get(e.from), b = nodes.get(e.to);
+    if (!a || !b) continue;
+    const weight = (e.rating / 5) * (e.confidence) * 3 + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = e.rating >= 4 ? 'rgba(63,185,80,0.3)' : e.rating >= 3 ? 'rgba(210,153,34,0.3)' : 'rgba(248,81,73,0.3)';
+    ctx.lineWidth = weight;
+    ctx.stroke();
+
+    // Arrowhead
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    const ux = dx/dist, uy = dy/dist;
+    const nodeR = getRadius(b);
+    const ax = b.x - ux * (nodeR + 4), ay = b.y - uy * (nodeR + 4);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - ux * 8 + uy * 4, ay - uy * 8 - ux * 4);
+    ctx.lineTo(ax - ux * 8 - uy * 4, ay - uy * 8 + ux * 4);
+    ctx.closePath();
+    ctx.fillStyle = ctx.strokeStyle.replace('0.3', '0.6');
+    ctx.fill();
+  }
+
+  // Nodes
+  for (const [hex, n] of nodes) {
+    const r = getRadius(n);
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS[n.role] || COLORS.subject;
+    ctx.globalAlpha = n.expanded ? 1 : 0.7;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    
+    if (hex === hoveredNode) {
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Label
+    ctx.fillStyle = 'rgba(201,209,217,0.8)';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(shortKey(hex), n.x, n.y + r + 12);
+  }
+
+  ctx.restore();
+
+  simulate();
+  animId = requestAnimationFrame(draw);
+}
+
+function getRadius(n) {
+  const total = n.attestsIn + n.attestsOut;
+  return Math.max(6, Math.min(20, 6 + total * 2));
+}
+
+function screenToWorld(sx, sy) {
+  return [(sx - panX) / zoom, (sy - panY) / zoom];
+}
+
+function findNode(sx, sy) {
+  const [wx, wy] = screenToWorld(sx, sy);
+  let closest = null, minDist = Infinity;
+  for (const [hex, n] of nodes) {
+    const d = Math.sqrt((n.x - wx)**2 + (n.y - wy)**2);
+    const r = getRadius(n);
+    if (d < r + 5 && d < minDist) { closest = hex; minDist = d; }
+  }
+  return closest;
+}
+
+// Mouse interaction
+canvas.addEventListener('mousedown', (e) => {
+  const hex = findNode(e.clientX, e.clientY);
+  if (hex) {
+    const n = nodes.get(hex);
+    const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    dragging = n;
+    dragOffX = n.x - wx; dragOffY = n.y - wy;
+    canvas.style.cursor = 'grabbing';
+  } else {
+    isPanning = true;
+    panStartX = e.clientX; panStartY = e.clientY;
+    panStartPX = panX; panStartPY = panY;
+  }
+});
+
+canvas.addEventListener('mousemove', (e) => {
+  if (dragging) {
+    const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+    dragging.x = wx + dragOffX; dragging.y = wy + dragOffY;
+    dragging.vx = 0; dragging.vy = 0;
+  } else if (isPanning) {
+    panX = panStartPX + (e.clientX - panStartX);
+    panY = panStartPY + (e.clientY - panStartY);
+  } else {
+    const hex = findNode(e.clientX, e.clientY);
+    hoveredNode = hex;
+    canvas.style.cursor = hex ? 'pointer' : 'grab';
+
+    const tooltip = document.getElementById('tooltip');
+    if (hex) {
+      const n = nodes.get(hex);
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 15) + 'px';
+      tooltip.style.top = (e.clientY + 15) + 'px';
+      const ctxs = [...n.contexts].join(', ') || 'none';
+      tooltip.innerHTML = `
+        <div class="tt-pubkey">${hex}</div>
+        <div class="tt-stats">
+          <span class="tt-label">Role:</span> ${n.role} ${n.expanded ? '(expanded)' : '(click to expand)'}<br>
+          <span class="tt-label">Attestations given:</span> ${n.attestsOut}<br>
+          <span class="tt-label">Attestations received:</span> ${n.attestsIn}<br>
+          <span class="tt-label">Contexts:</span> ${ctxs}
+        </div>`;
+    } else {
+      tooltip.style.display = 'none';
+    }
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  if (dragging) { dragging = null; canvas.style.cursor = 'grab'; }
+  isPanning = false;
+});
+
+canvas.addEventListener('click', async (e) => {
+  if (isPanning) return;
+  const hex = findNode(e.clientX, e.clientY);
+  if (hex && !nodes.get(hex).expanded) {
+    document.getElementById('goBtn').disabled = true;
+    await expandNode(hex);
+    document.getElementById('goBtn').disabled = false;
+  }
+});
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  const [wx, wy] = screenToWorld(e.clientX, e.clientY);
+  zoom *= factor;
+  zoom = Math.max(0.1, Math.min(5, zoom));
+  panX = e.clientX - wx * zoom;
+  panY = e.clientY - wy * zoom;
+}, { passive: false });
+
+// Touch support
+let lastTouchDist = 0;
+canvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    const hex = findNode(t.clientX, t.clientY);
+    if (hex) {
+      const n = nodes.get(hex);
+      const [wx, wy] = screenToWorld(t.clientX, t.clientY);
+      dragging = n; dragOffX = n.x - wx; dragOffY = n.y - wy;
+      if (!n.expanded) expandNode(hex);
+    } else {
+      isPanning = true; panStartX = t.clientX; panStartY = t.clientY;
+      panStartPX = panX; panStartPY = panY;
+    }
+  }
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastTouchDist = Math.sqrt(dx*dx + dy*dy);
+  }
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 1 && dragging) {
+    const [wx, wy] = screenToWorld(e.touches[0].clientX, e.touches[0].clientY);
+    dragging.x = wx + dragOffX; dragging.y = wy + dragOffY;
+  } else if (e.touches.length === 1 && isPanning) {
+    panX = panStartPX + (e.touches[0].clientX - panStartX);
+    panY = panStartPY + (e.touches[0].clientY - panStartY);
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (lastTouchDist > 0) { zoom *= dist / lastTouchDist; zoom = Math.max(0.1, Math.min(5, zoom)); }
+    lastTouchDist = dist;
+  }
+  e.preventDefault();
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => { dragging = null; isPanning = false; lastTouchDist = 0; });
+
+// Pre-fill and auto-start
+if (location.hash.length > 1) {
+  document.getElementById('seedInput').value = decodeURIComponent(location.hash.slice(1));
+  setTimeout(startGraph, 300);
+}
+
+// Start render loop
+draw();
+</script>
+</body>
+</html>
