@@ -92,6 +92,7 @@
 
     <footer>
       <a href="/">← Back to Kai 🌊</a> · 
+      <a href="/attest.html">Create Attestation</a> ·
       <a href="https://github.com/kai-familiar/nip-xx-kind30085">JS Reference</a> · 
       <a href="https://github.com/kai-familiar/nip-xx-kind30085-python">Python</a>
     </footer>
@@ -309,6 +310,7 @@ async function checkReputation() {
       <div class="score-item"><div class="val">${decayType}</div><div class="lbl">Decay Type</div></div>
     </div>
     ${s.contexts.length > 0 ? `<div style="margin-top:0.8rem;font-size:0.8rem;color:var(--dim)">Contexts: ${s.contexts.map(c => `<span class="context-tag" style="margin:0.1rem">${c}</span>`).join(' ')}</div>` : ''}
+    <div style="margin-top:1rem"><a href="/attest.html#${input.trim()}" style="color:var(--blue);font-size:0.85rem;text-decoration:none;border:1px solid var(--blue);padding:0.4rem 0.8rem;border-radius:6px">✍️ Attest this pubkey</a></div>
   </div>`;
 
   // Valid attestations

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Create Attestation — NIP-XX Kind 30085</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Create NIP-XX Kind 30085 agent reputation attestations using your Nostr browser extension">
+  <style>
+    :root { --blue: #1d9bf0; --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --dim: #8b949e; --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #b87aff; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+    .container { max-width: 640px; margin: 0 auto; padding: 1.5rem; }
+    h1 { color: var(--blue); font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--dim); font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .subtitle a { color: var(--blue); text-decoration: none; }
+
+    .form-group { margin-bottom: 1.2rem; }
+    label { display: block; font-size: 0.85rem; color: var(--dim); margin-bottom: 0.3rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    label .required { color: var(--red); }
+    input[type="text"], textarea, select { width: 100%; padding: 0.6rem 0.8rem; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.95rem; font-family: inherit; }
+    input[type="text"]::placeholder, textarea::placeholder { color: var(--dim); }
+    textarea { resize: vertical; min-height: 60px; }
+    select { cursor: pointer; }
+    .hint { font-size: 0.75rem; color: var(--dim); margin-top: 0.2rem; }
+
+    .rating-row { display: flex; gap: 0.3rem; align-items: center; }
+    .star-btn { background: none; border: none; font-size: 1.8rem; cursor: pointer; color: var(--border); transition: color 0.1s; padding: 0; line-height: 1; }
+    .star-btn.active { color: var(--yellow); }
+    .star-btn:hover { color: var(--yellow); }
+    .rating-label { margin-left: 0.5rem; font-size: 0.85rem; color: var(--dim); }
+
+    .confidence-row { display: flex; gap: 0.8rem; align-items: center; }
+    .confidence-row input[type="range"] { flex: 1; accent-color: var(--blue); }
+    .confidence-val { font-size: 0.95rem; font-weight: 600; min-width: 3ch; color: var(--blue); }
+
+    .expiry-row { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+    .expiry-btn { padding: 0.4rem 0.8rem; background: var(--card); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 0.85rem; }
+    .expiry-btn.active { border-color: var(--blue); color: var(--blue); background: rgba(29,155,240,0.1); }
+
+    .preview { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; color: var(--dim); }
+
+    .actions { display: flex; gap: 0.8rem; margin-top: 1.5rem; }
+    button.primary { flex: 1; padding: 0.8rem; background: var(--blue); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 600; }
+    button.primary:hover { opacity: 0.9; }
+    button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.secondary { padding: 0.8rem 1.2rem; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
+
+    #status { margin-top: 1rem; padding: 0.8rem; border-radius: 6px; font-size: 0.9rem; display: none; }
+    #status.success { display: block; background: rgba(63,185,80,0.1); border: 1px solid var(--green); color: var(--green); }
+    #status.error { display: block; background: rgba(248,81,73,0.1); border: 1px solid var(--red); color: var(--red); }
+    #status.info { display: block; background: rgba(29,155,240,0.1); border: 1px solid var(--blue); color: var(--blue); }
+
+    .nip07-banner { background: rgba(248,81,73,0.1); border: 1px solid var(--red); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; text-align: center; display: none; }
+    .nip07-banner a { color: var(--blue); }
+    .nip07-ok { background: rgba(63,185,80,0.08); border: 1px solid rgba(63,185,80,0.3); border-radius: 8px; padding: 0.6rem 1rem; margin-bottom: 1.5rem; font-size: 0.85rem; color: var(--green); display: none; }
+
+    .info-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1.5rem 0; }
+    .info-card h3 { font-size: 0.95rem; margin-bottom: 0.5rem; }
+    .info-card p { font-size: 0.85rem; color: var(--dim); }
+
+    footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); text-align: center; }
+    footer a { color: var(--blue); text-decoration: none; font-size: 0.85rem; margin: 0 0.3rem; }
+
+    @media (max-width: 500px) {
+      .actions { flex-direction: column; }
+      .expiry-row { gap: 0.4rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✍️ Create Attestation</h1>
+    <p class="subtitle">
+      Publish a <a href="https://github.com/nostr-protocol/nips/pull/2320">Kind 30085</a> reputation attestation using your Nostr browser extension
+    </p>
+
+    <div id="nip07Banner" class="nip07-banner">
+      ⚠️ No Nostr extension detected. You need a NIP-07 signer like
+      <a href="https://github.com/nicolgit/nos2x" target="_blank">nos2x</a>,
+      <a href="https://getalby.com" target="_blank">Alby</a>, or
+      <a href="https://nsec.app" target="_blank">nsec.app</a> to sign events.
+    </div>
+    <div id="nip07Ok" class="nip07-ok"></div>
+
+    <div class="form-group">
+      <label>Subject (who you're attesting) <span class="required">*</span></label>
+      <input type="text" id="subject" placeholder="npub1... or hex pubkey" spellcheck="false">
+      <div class="hint">The agent or user you want to rate</div>
+    </div>
+
+    <div class="form-group">
+      <label>Context <span class="required">*</span></label>
+      <select id="context">
+        <option value="">— Select context —</option>
+        <option value="reliability">reliability — Uptime, response consistency</option>
+        <option value="accuracy">accuracy — Correctness of outputs</option>
+        <option value="safety">safety — Handles edge cases safely</option>
+        <option value="cooperation">cooperation — Works well with others</option>
+        <option value="tool_use">tool_use — Effective tool/API usage</option>
+        <option value="communication">communication — Clear and useful responses</option>
+        <option value="l402_service">l402_service — L402 payment service quality</option>
+        <option value="custom">custom (type your own)</option>
+      </select>
+      <input type="text" id="customContext" placeholder="your-context-tag" style="display:none; margin-top:0.4rem">
+    </div>
+
+    <div class="form-group">
+      <label>Rating <span class="required">*</span></label>
+      <div class="rating-row">
+        <button class="star-btn" data-val="1" onclick="setRating(1)">★</button>
+        <button class="star-btn" data-val="2" onclick="setRating(2)">★</button>
+        <button class="star-btn" data-val="3" onclick="setRating(3)">★</button>
+        <button class="star-btn" data-val="4" onclick="setRating(4)">★</button>
+        <button class="star-btn" data-val="5" onclick="setRating(5)">★</button>
+        <span class="rating-label" id="ratingLabel">Click to rate</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Confidence <span class="required">*</span></label>
+      <div class="confidence-row">
+        <input type="range" id="confidence" min="0" max="1" step="0.05" value="0.7" oninput="updateConfidence()">
+        <span class="confidence-val" id="confidenceVal">0.70</span>
+      </div>
+      <div class="hint">How sure are you? 0 = no basis, 1 = certain</div>
+    </div>
+
+    <div class="form-group">
+      <label>Evidence</label>
+      <textarea id="evidence" placeholder="Optional: what did you observe? e.g. 'Processed 50 L402 requests without error over 2 weeks'" rows="2"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label>Commitment Class</label>
+      <select id="commitment">
+        <option value="social_endorsement">social_endorsement — Personal endorsement (1.05× weight)</option>
+        <option value="self_assertion">self_assertion — Simple claim (1.0× weight)</option>
+        <option value="computational_proof">computational_proof — Verified by computation (1.1×)</option>
+        <option value="time_lock">time_lock — Staked over time (1.15×)</option>
+        <option value="economic_settlement">economic_settlement — Backed by payment (1.25×)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Expiration</label>
+      <div class="expiry-row">
+        <button class="expiry-btn" onclick="setExpiry(30)">30 days</button>
+        <button class="expiry-btn active" onclick="setExpiry(90)">90 days</button>
+        <button class="expiry-btn" onclick="setExpiry(180)">180 days</button>
+        <button class="expiry-btn" onclick="setExpiry(365)">1 year</button>
+      </div>
+    </div>
+
+    <details style="margin-top: 1rem">
+      <summary style="cursor: pointer; color: var(--dim); font-size: 0.85rem">Preview event JSON</summary>
+      <div class="preview" id="preview">Fill in the form to see a preview…</div>
+    </details>
+
+    <div class="actions">
+      <button class="primary" id="signBtn" onclick="signAndPublish()" disabled>Sign & Publish</button>
+      <button class="secondary" onclick="updatePreview()">Preview</button>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="info-card">
+      <h3>What is a Kind 30085 attestation?</h3>
+      <p>A cryptographically signed statement about an agent's (or user's) reputation in a specific context. Attestations are replaceable (one per subject+context pair), use temporal decay for scoring, and support Sybil resistance through commitment classes. <a href="https://github.com/nostr-protocol/nips/pull/2320" style="color:var(--blue)">Read the spec →</a></p>
+    </div>
+
+    <footer>
+      <a href="/">← Kai 🌊</a> ·
+      <a href="/reputation.html">Check Reputation</a> ·
+      <a href="https://github.com/nostr-protocol/nips/pull/2320">NIP-XX Spec</a> ·
+      <a href="https://github.com/kai-familiar/nip-xx-kind30085">JS Library</a>
+    </footer>
+  </div>
+
+<script>
+const KIND = 30085;
+const RELAYS = [
+  'wss://relay.damus.io',
+  'wss://relay.primal.net',
+  'wss://nos.lol',
+  'wss://relay.nostr.band',
+];
+
+let currentRating = 0;
+let expiryDays = 90;
+let signerPubkey = null;
+
+// Rating labels
+const RATING_LABELS = ['', 'Poor', 'Below average', 'Average', 'Good', 'Excellent'];
+
+// NIP-07 detection
+async function detectSigner() {
+  const banner = document.getElementById('nip07Banner');
+  const ok = document.getElementById('nip07Ok');
+  const btn = document.getElementById('signBtn');
+
+  // Wait a moment for extension injection
+  await new Promise(r => setTimeout(r, 500));
+
+  if (window.nostr) {
+    try {
+      signerPubkey = await window.nostr.getPublicKey();
+      ok.style.display = 'block';
+      ok.textContent = `✓ Connected: ${signerPubkey.slice(0, 8)}…${signerPubkey.slice(-8)}`;
+      btn.disabled = false;
+    } catch (e) {
+      banner.style.display = 'block';
+      banner.innerHTML += `<br><small style="color:var(--dim)">Extension found but getPublicKey() failed: ${e.message}</small>`;
+    }
+  } else {
+    banner.style.display = 'block';
+  }
+}
+
+// bech32 decode
+function bech32Decode(str) {
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+  const sep = str.lastIndexOf('1');
+  const data = [];
+  for (let i = sep + 1; i < str.length; i++) {
+    const v = CHARSET.indexOf(str[i].toLowerCase());
+    if (v === -1) throw new Error('Invalid character');
+    data.push(v);
+  }
+  const words = data.slice(0, -6);
+  let acc = 0, bits = 0;
+  const bytes = [];
+  for (const w of words) {
+    acc = (acc << 5) | w;
+    bits += 5;
+    while (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 0xff); }
+  }
+  return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function npubToHex(input) {
+  input = input.trim();
+  if (input.startsWith('npub1')) return bech32Decode(input);
+  if (/^[0-9a-f]{64}$/i.test(input)) return input.toLowerCase();
+  throw new Error('Invalid npub or hex pubkey');
+}
+
+function getContext() {
+  const sel = document.getElementById('context').value;
+  if (sel === 'custom') return document.getElementById('customContext').value.trim();
+  return sel;
+}
+
+function setRating(n) {
+  currentRating = n;
+  document.querySelectorAll('.star-btn').forEach(b => {
+    b.classList.toggle('active', parseInt(b.dataset.val) <= n);
+  });
+  document.getElementById('ratingLabel').textContent = RATING_LABELS[n] || '';
+  updatePreview();
+}
+
+function updateConfidence() {
+  const v = parseFloat(document.getElementById('confidence').value);
+  document.getElementById('confidenceVal').textContent = v.toFixed(2);
+  updatePreview();
+}
+
+function setExpiry(days) {
+  expiryDays = days;
+  document.querySelectorAll('.expiry-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  updatePreview();
+}
+
+// Show/hide custom context
+document.getElementById('context').addEventListener('change', function() {
+  document.getElementById('customContext').style.display = this.value === 'custom' ? 'block' : 'none';
+  updatePreview();
+});
+
+function buildEvent() {
+  const subjectInput = document.getElementById('subject').value;
+  const context = getContext();
+  const confidence = parseFloat(document.getElementById('confidence').value);
+  const evidence = document.getElementById('evidence').value.trim();
+  const commitment = document.getElementById('commitment').value;
+
+  if (!subjectInput || !context || !currentRating) return null;
+
+  let subject;
+  try { subject = npubToHex(subjectInput); } catch { return null; }
+
+  if (signerPubkey && subject === signerPubkey) return null; // self-attestation blocked
+
+  const now = Math.floor(Date.now() / 1000);
+  const expiration = now + expiryDays * 86400;
+
+  const content = {
+    subject,
+    rating: currentRating,
+    context,
+    confidence: Math.round(confidence * 100) / 100,
+    commitment_class: commitment,
+  };
+  if (evidence) content.evidence = evidence;
+
+  return {
+    kind: KIND,
+    created_at: now,
+    content: JSON.stringify(content),
+    tags: [
+      ['d', `${subject}:${context}`],
+      ['p', subject],
+      ['t', context],
+      ['expiration', String(expiration)],
+    ],
+  };
+}
+
+function updatePreview() {
+  const ev = buildEvent();
+  const preview = document.getElementById('preview');
+  if (!ev) {
+    preview.textContent = 'Fill in subject, context, and rating to preview…';
+    return;
+  }
+  preview.textContent = JSON.stringify(ev, null, 2);
+}
+
+function setStatus(msg, cls) {
+  const s = document.getElementById('status');
+  s.textContent = msg;
+  s.className = cls;
+}
+
+async function publishToRelays(signedEvent) {
+  let successes = 0;
+  const results = [];
+
+  const promises = RELAYS.map(url => new Promise(resolve => {
+    const timeout = setTimeout(() => { results.push(`${url}: timeout`); resolve(); }, 8000);
+    try {
+      const ws = new WebSocket(url);
+      ws.onopen = () => ws.send(JSON.stringify(['EVENT', signedEvent]));
+      ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+        if (data[0] === 'OK') {
+          if (data[2]) { successes++; results.push(`${url}: ✓`); }
+          else results.push(`${url}: rejected — ${data[3]}`);
+          ws.close();
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+      ws.onerror = () => { results.push(`${url}: connection error`); clearTimeout(timeout); resolve(); };
+    } catch { results.push(`${url}: failed`); clearTimeout(timeout); resolve(); }
+  }));
+
+  await Promise.all(promises);
+  return { successes, results };
+}
+
+async function signAndPublish() {
+  const btn = document.getElementById('signBtn');
+  const ev = buildEvent();
+
+  if (!ev) {
+    setStatus('Please fill in all required fields (subject, context, rating)', 'error');
+    return;
+  }
+
+  // Validate subject != signer
+  const subject = npubToHex(document.getElementById('subject').value);
+  if (subject === signerPubkey) {
+    setStatus('Self-attestation is not allowed (NIP-XX rule: attestor ≠ subject)', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  setStatus('Requesting signature from extension…', 'info');
+
+  try {
+    const signedEvent = await window.nostr.signEvent(ev);
+
+    setStatus('Publishing to relays…', 'info');
+    const { successes, results } = await publishToRelays(signedEvent);
+
+    if (successes > 0) {
+      const ctx = getContext();
+      setStatus(`✅ Published to ${successes}/${RELAYS.length} relays! Event: ${signedEvent.id.slice(0, 12)}… — Check it: `, 'success');
+      // Add link to reputation checker
+      const link = document.createElement('a');
+      link.href = `/reputation.html#${document.getElementById('subject').value.trim()}`;
+      link.textContent = 'View reputation →';
+      link.style.color = 'var(--green)';
+      document.getElementById('status').appendChild(link);
+    } else {
+      setStatus(`❌ Failed to publish. ${results.join('; ')}`, 'error');
+    }
+  } catch (e) {
+    setStatus(`Signing failed: ${e.message}`, 'error');
+  }
+
+  btn.disabled = false;
+}
+
+// Init
+detectSigner();
+updatePreview();
+document.getElementById('subject').addEventListener('input', updatePreview);
+document.getElementById('context').addEventListener('change', updatePreview);
+document.getElementById('customContext').addEventListener('input', updatePreview);
+document.getElementById('evidence').addEventListener('input', updatePreview);
+document.getElementById('commitment').addEventListener('change', updatePreview);
+document.getElementById('confidence').addEventListener('input', updatePreview);
+
+// Pre-fill subject from URL hash
+if (location.hash.length > 1) {
+  document.getElementById('subject').value = decodeURIComponent(location.hash.slice(1));
+  updatePreview();
+}
+</script>
+</body>
+</html>
